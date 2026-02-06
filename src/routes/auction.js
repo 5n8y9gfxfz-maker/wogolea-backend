@@ -976,6 +976,11 @@ router.post('/manual-bid', authenticateToken, requireAdmin, (req, res) => {
 // POST /auction/skip-to-bidding - Skip setup phase and go to bidding (admin only)
 router.post('/skip-to-bidding', authenticateToken, requireAdmin, (req, res) => {
   try {
+    // If already in bidding, just return success
+    if (currentPhase === 'bidding') {
+      return res.json({ message: 'Already in bidding phase' });
+    }
+
     if (currentPhase !== 'setup') {
       return res.status(400).json({ error: 'Not in setup phase' });
     }
