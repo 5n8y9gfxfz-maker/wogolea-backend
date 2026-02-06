@@ -225,6 +225,11 @@ router.post('/start', authenticateToken, requireAdmin, (req, res) => {
 
 // Function to start bidding phase after setup
 function startBiddingPhase(io) {
+  if (currentPhase === 'bidding') {
+    console.log('[AUCTION] Already in bidding phase, skipping');
+    return;
+  }
+  console.log('[AUCTION] Transitioning to bidding phase');
   currentPhase = 'bidding';
 
   // Set bidding timer (30 seconds)
