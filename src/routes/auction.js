@@ -7,7 +7,8 @@ const { authenticateToken, optionalAuth, requireAdmin } = require('../middleware
 let bidQueue = [];
 let isProcessingBids = false;
 let lastBidTime = 0;
-const BID_INTERVAL_MS = 3000; // 3 seconds between bids
+const BID_INTERVAL_MS = 3000; // 3 seconds between manual bids
+const AUTO_BID_INTERVAL_MS = 1000; // 1 second between auto-bids
 
 // Prevent double-sold race condition
 let isSoldInProgress = false;
@@ -31,18 +32,19 @@ async function processBidQueue(io) {
   while (bidQueue.length > 0) {
     const now = Date.now();
     const timeSinceLastBid = now - lastBidTime;
+    const bid = bidQueue[0];
+    const interval = bid.isAutoBid ? AUTO_BID_INTERVAL_MS : BID_INTERVAL_MS;
 
-    if (timeSinceLastBid < BID_INTERVAL_MS) {
-      // Wait for remaining time
-      await new Promise(resolve => setTimeout(resolve, BID_INTERVAL_MS - timeSinceLastBid));
+    if (timeSinceLastBid < interval) {
+      await new Promise(resolve => setTimeout(resolve, interval - timeSinceLastBid));
     }
 
-    const bid = bidQueue.shift();
-    if (bid) {
-      await executeBid(bid, io);
-      lastBidTime = Date.now();
+    bidQueue.shift();
+    const result = await executeBid(bid, io);
+    lastBidTime = Date.now();
 
-      // Check for auto-bids from other teams
+    // Only check for auto-bids if this bid succeeded
+    if (result && result.success) {
       await checkAutoBids(bid.teamId, io);
     }
   }
@@ -106,30 +108,40 @@ async function executeBid(bid, io) {
   return { success: true };
 }
 
-// Check and trigger auto-bids from other teams
+// Check and trigger the next auto-bid (only one at a time to avoid stale duplicates)
 async function checkAutoBids(excludeTeamId, io) {
   const state = db.prepare('SELECT * FROM auction_state WHERE id = 1').get();
   if (state.mode !== 'auction' || !state.current_player_id) return;
 
+  // Find the best eligible auto-bidder (lowest increment first for fairness, then by teamId for determinism)
+  let bestBid = null;
+
   for (const [teamIdStr, settings] of Object.entries(autoBidSettings)) {
     const teamId = parseInt(teamIdStr);
     if (teamId === excludeTeamId || !settings.active) continue;
+
+    // Skip if team already has a pending bid in queue
+    if (bidQueue.some(b => b.teamId === teamId)) continue;
 
     const team = db.prepare('SELECT * FROM teams WHERE id = ?').get(teamId);
     if (!team) continue;
 
     const nextBid = state.current_bid + settings.increment;
 
-    // Check if auto-bid should trigger
     if (nextBid <= settings.maxBid && nextBid <= team.budget_remaining) {
-      // Add to queue
-      bidQueue.push({
-        teamId,
-        amount: nextBid,
-        increment: settings.increment,
-        isAutoBid: true
-      });
+      if (!bestBid || nextBid < bestBid.amount || (nextBid === bestBid.amount && teamId < bestBid.teamId)) {
+        bestBid = {
+          teamId,
+          amount: nextBid,
+          increment: settings.increment,
+          isAutoBid: true
+        };
+      }
     }
+  }
+
+  if (bestBid) {
+    bidQueue.push(bestBid);
   }
 
   // Continue processing if new bids were added
