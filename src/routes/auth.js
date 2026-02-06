@@ -38,8 +38,8 @@ router.post('/send-otp', async (req, res) => {
       res.json({
         success: true,
         message: 'OTP sent successfully',
-        // Include OTP in dev mode for testing
-        ...(process.env.NODE_ENV !== 'production' && { otp: result.otp })
+        // Include OTP in response (no real SMS provider configured)
+        otp: result.otp
       });
     } else {
       res.status(500).json({ error: result.message || 'Failed to send OTP' });
