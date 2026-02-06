@@ -62,8 +62,9 @@ async function executeBid(bid, io) {
     return { success: false, error: 'Auction not active' };
   }
 
-  // Check if bid is still valid (higher than current)
-  if (amount <= state.current_bid) {
+  // Check if bid is still valid
+  // Allow opening bid at base price (when no one has bid yet), require strictly higher after that
+  if (amount < state.current_bid || (amount === state.current_bid && state.current_bidder_team_id !== null)) {
     return { success: false, error: 'Bid too low' };
   }
 
