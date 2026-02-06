@@ -9,6 +9,9 @@ let isProcessingBids = false;
 let lastBidTime = 0;
 const BID_INTERVAL_MS = 3000; // 3 seconds between bids
 
+// Prevent double-sold race condition
+let isSoldInProgress = false;
+
 // Configurable setup phase duration (admin can change this)
 let setupPhaseDuration = 30000; // Default 30 seconds for teams to set auto-bid
 
@@ -295,6 +298,7 @@ router.post('/next-player', authenticateToken, requireAdmin, (req, res) => {
     // Clear bid queue and reset auto-bid settings for new player
     bidQueue = [];
     autoBidSettings = {};
+    isSoldInProgress = false;
     if (phaseTimer) {
       clearTimeout(phaseTimer);
       phaseTimer = null;
@@ -531,6 +535,12 @@ router.get('/queue', optionalAuth, (req, res) => {
 // POST /auction/sold - Mark player as sold (admin only)
 router.post('/sold', authenticateToken, requireAdmin, (req, res) => {
   try {
+    // Prevent double-sold race condition
+    if (isSoldInProgress) {
+      return res.status(409).json({ error: 'Sale already in progress' });
+    }
+    isSoldInProgress = true;
+
     // Clear bid queue and phase
     bidQueue = [];
     currentPhase = 'idle';
@@ -542,6 +552,7 @@ router.post('/sold', authenticateToken, requireAdmin, (req, res) => {
     const state = db.prepare('SELECT * FROM auction_state WHERE id = 1').get();
 
     if (!state.current_player_id || !state.current_bidder_team_id) {
+      isSoldInProgress = false;
       return res.status(400).json({ error: 'No active bid to complete' });
     }
 
@@ -593,6 +604,8 @@ router.post('/sold', authenticateToken, requireAdmin, (req, res) => {
       });
     }
 
+    isSoldInProgress = false;
+
     res.json({
       message: 'Player sold',
       player,
@@ -600,6 +613,7 @@ router.post('/sold', authenticateToken, requireAdmin, (req, res) => {
       price: state.current_bid
     });
   } catch (error) {
+    isSoldInProgress = false;
     console.error('Sold Error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
