@@ -1,0 +1,4 @@
+https://Malhars-MacBook-Air-2.local:443 {
+	tls certs/Malhars-MacBook-Air-2.local+3.pem certs/Malhars-MacBook-Air-2.local+3-key.pem
+	reverse_proxy localhost:3000
+}
